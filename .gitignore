@@ -1,1 +1,34 @@
 docs/
+
+# secrets
+.env
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.venv/
+
+# derived / generated
+*.sqlite
+*.db
+data/outputs/
+data/last_run.json
+data/statuses.json
+
+# internal docs (kept local)
+DEVELOPMENT.md
+ARCHITECTURE.md
+VALIDATION.md
+STREAMLIT_PLAN.md
+
+# test suite (kept local)
+tests/
+
+# personal run data — generated from a real resume + a real hunt
+data/profile.yml
+data/applications.md
+data/pipeline.md
+data/reports/
+

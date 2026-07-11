@@ -1,0 +1,37 @@
+# multi-agent-jobHunter — settings you edit (values only; secret lives in .env)
+
+llm:
+  provider: deepseek
+  base_url: https://api.deepseek.com
+  models:
+    pro: deepseek-v4-pro       # reasoning model → judgment (analyst, onboarding)
+    flash: deepseek-v4-flash   # fast model → cheap/simple calls
+  max_tokens:
+    pro: 4096                  # generous: pro is a reasoning model — hidden reasoning eats budget first
+    flash: 3072                # roomy enough for a tailored CV + cover letter (tailor/coach use flash)
+  timeout: 60
+
+discovery:
+  country: MY
+  site_key: MY-Main            # JobStreet SEEK site key for Malaysia
+  providers:                   # enabled sources, in priority order
+    - jobstreet                # proven primary (JobStreet alone returns 1,500+ KL jobs)
+    # - glints                 # throttled secondary — disabled for speed; re-enable to add a source
+  max_results_per_provider: 30
+  dedup: false                 # cross-source de-duplication (cheap; off = duplicates allowed)
+  liveness: false              # pre-eval liveness HTTP check (off = faster, may score a dead posting)
+
+scoring:
+  # weights per dimension — MUST sum to 1.0. Change these to change ranking (no AI re-run).
+  weights:
+    role_match: 0.25
+    skills: 0.25
+    comp: 0.15
+    location: 0.15
+    growth: 0.10
+    legitimacy: 0.10
+  threshold: 6.0               # out of 10.0 — overall below this → "Skip / don't apply"
+  legitimacy_floor: 4.0        # out of 10.0 — legitimacy below this → hard "Skip" (scam/ghost gate)
+
+analyst:
+  max_steps: 3                 # ReAct loop bound (lower = faster, fewer tool lookups)

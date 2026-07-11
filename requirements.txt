@@ -1,0 +1,7 @@
+pydantic>=2.5
+pyyaml>=6.0
+requests>=2.31
+openai>=1.30
+python-dotenv>=1.0
+pypdf>=4.0
+pytest>=8.0
