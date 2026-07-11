@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Optional, Type
+from typing import Callable, Optional, Type
 
 from pydantic import BaseModel, ValidationError
 
@@ -77,6 +77,35 @@ class LLMClient:
         resp = self._client.chat.completions.create(**kwargs)
         return resp.choices[0].message.content or ""
 
+    def _chat_stream(self, messages: list[dict], max_tokens: int, temperature: float,
+                     on_reasoning: Callable[[str], None], json_mode: bool = False) -> str:
+        """Streaming call in THINKING mode: reasoning tokens go to `on_reasoning` as they
+        arrive; the visible answer is accumulated and returned. Validated live against the
+        DeepSeek API — reasoning_content and a json_object body coexist (see thinking docs)."""
+        kwargs: dict = dict(
+            model=self.model, messages=messages,
+            max_tokens=max_tokens, temperature=temperature, stream=True,
+            reasoning_effort="high", extra_body={"thinking": {"type": "enabled"}},
+        )
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        content = ""
+        for chunk in self._client.chat.completions.create(**kwargs):
+            if not getattr(chunk, "choices", None):
+                continue
+            delta = chunk.choices[0].delta
+            rc = getattr(delta, "reasoning_content", None)
+            if rc:
+                try:
+                    on_reasoning(rc)
+                except Exception:  # a display sink must never break the model call
+                    pass
+                continue
+            piece = getattr(delta, "content", None)
+            if piece:
+                content += piece
+        return content
+
     # --- public API -------------------------------------------------------- #
     def complete(
         self,
@@ -85,33 +114,46 @@ class LLMClient:
         schema: Optional[Type[BaseModel]] = None,
         max_tokens: Optional[int] = None,
         temperature: float = 0.0,
+        on_reasoning: Optional[Callable[[str], None]] = None,
     ):
-        """Text reply (schema=None) or a schema-validated dict (schema=Model)."""
-        mt = max_tokens or self.max_tokens
-        if schema is None:
-            return self._chat(
-                [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                mt, temperature,
-            )
-        return self._complete_schema(system, user, schema, mt, temperature)
+        """Text reply (schema=None) or a schema-validated dict (schema=Model).
 
-    def _complete_schema(self, system: str, user: str, schema: Type[BaseModel],
-                         max_tokens: int, temperature: float) -> dict:
+        Pass `on_reasoning` to stream the model's chain-of-thought (thinking mode): each
+        reasoning token chunk is handed to the callback as it arrives, while the final
+        answer is still returned/validated exactly as in the non-streaming path.
+        """
+        mt = max_tokens or self.max_tokens
+        base = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        if schema is None:
+            if on_reasoning is not None:
+                return self._chat_stream(base, mt, temperature, on_reasoning, json_mode=False)
+            return self._chat(base, mt, temperature)
+
         messages = [
             {"role": "system", "content": system + _JSON_INSTRUCTION},
             {"role": "user", "content": user},
         ]
-        text = self._chat(messages, max_tokens, temperature, json_mode=True)
+        if on_reasoning is not None:
+            text = self._chat_stream(messages, mt, temperature, on_reasoning, json_mode=True)
+        else:
+            text = self._chat(messages, mt, temperature, json_mode=True)
+        return self._validate_or_repair(messages, text, schema, mt, temperature)
+
+    def _validate_or_repair(self, messages: list[dict], text: str, schema: Type[BaseModel],
+                            max_tokens: int, temperature: float) -> dict:
         try:
             return schema.model_validate(_extract_json(text)).model_dump()
         except (json.JSONDecodeError, ValidationError) as first_err:
-            # ONE repair attempt: show the model exactly what was wrong.
-            messages.append({"role": "assistant", "content": text})
-            messages.append({"role": "user", "content": (
-                f"Your previous response was not valid for the required schema:\n{first_err}\n"
-                "Reply again with ONLY the corrected JSON object."
-            )})
-            text2 = self._chat(messages, max_tokens, temperature, json_mode=True)
+            # ONE repair attempt: show the model exactly what was wrong (non-streaming —
+            # the reasoning, if any, has already been shown).
+            repair = messages + [
+                {"role": "assistant", "content": text},
+                {"role": "user", "content": (
+                    f"Your previous response was not valid for the required schema:\n{first_err}\n"
+                    "Reply again with ONLY the corrected JSON object."
+                )},
+            ]
+            text2 = self._chat(repair, max_tokens, temperature, json_mode=True)
             try:
                 return schema.model_validate(_extract_json(text2)).model_dump()
             except (json.JSONDecodeError, ValidationError) as second_err:

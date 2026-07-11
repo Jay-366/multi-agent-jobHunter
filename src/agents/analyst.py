@@ -90,11 +90,21 @@ def _context(candidate: Candidate, posting: JobPosting) -> str:
 class AnalystAgent:
     name = "analyst"
 
-    def __init__(self, llm=None, tools=None, max_steps: int | None = None):
+    def __init__(self, llm=None, tools=None, max_steps: int | None = None,
+                 thinking: bool | None = None):
         self._llm = llm
         self._tools = tool_registry(*(tools if tools is not None else default_tools()))
         self._max_steps = max_steps
+        self._thinking_flag = thinking
         self.trace: list[str] = []
+
+    def _thinking(self) -> bool:
+        """Whether to stream the model's chain-of-thought (thinking mode). Config-driven,
+        overridable via the constructor. Off by default so speed/cost are opt-in."""
+        if self._thinking_flag is not None:
+            return self._thinking_flag
+        from src.config import settings
+        return bool(settings.analyst.get("thinking", False))
 
     def _get_llm(self):
         if self._llm is None:
@@ -117,10 +127,16 @@ class AnalystAgent:
         system = (ANALYST_PROMPT + "\n\nAVAILABLE TOOLS:\n"
                   + _tool_specs(self._tools) + _RESPONSE_FORMAT)
         observations: list[str] = []
+        stream = bool(emit) and self._thinking()
 
         for step in range(1, max_steps + 1):
             force_final = step == max_steps
             obs = ("\n\nOBSERVATIONS SO FAR:\n" + "\n".join(observations)) if observations else ""
+            # When thinking is on, stream the model's raw reasoning tokens to the feed.
+            on_reasoning = (
+                (lambda d, s=step: emit_to(emit, AgentEvent("analyst", "reasoning_delta", d, s)))
+                if stream else None
+            )
 
             if force_final:
                 # Last step: no more tools — must produce the evaluation now.
@@ -128,7 +144,8 @@ class AnalystAgent:
                         "evaluation JSON: {\"posting_id\":\"" + posting.id + "\",\"dimensions\":"
                         "[{\"name\":\"role_match\",\"raw\":0-10,\"evidence\":\"...\"}, ...one per "
                         "dimension: " + ", ".join(_DIMENSION_NAMES) + "...],\"legitimacy\":0-10}.")
-                data = llm.complete(system=system, user=user, schema=RawEvaluation)
+                data = llm.complete(system=system, user=user, schema=RawEvaluation,
+                                    on_reasoning=on_reasoning)
                 raw = RawEvaluation.model_validate(data)
                 self.trace.append(f"step {step}: forced final evaluation")
                 emit_to(emit, AgentEvent("analyst", "info",
@@ -137,9 +154,11 @@ class AnalystAgent:
 
             user = (ctx + obs + "\n\nDecide the next step: either call ONE tool (set "
                     "'action'), or finish by setting 'evaluation'. Do not do both.")
-            data = llm.complete(system=system, user=user, schema=AnalystStep)
+            data = llm.complete(system=system, user=user, schema=AnalystStep,
+                                on_reasoning=on_reasoning)
             stp = AnalystStep.model_validate(data)
-            if stp.thought:
+            # If we streamed the raw reasoning, skip the short structured thought (no dupes).
+            if stp.thought and not stream:
                 emit_to(emit, AgentEvent("analyst", "thought", stp.thought, step))
 
             if stp.evaluation is not None:

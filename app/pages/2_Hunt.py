@@ -52,20 +52,52 @@ def _render_shortlist(run) -> None:
 if st.button("Run hunt", type="primary"):
     from app.trace import event_markdown
 
-    st.caption("🧠 = agent thinking · 🔧 = tool call · ✅ = result — watch the agents work below.")
+    from src.events import AgentEvent
+
+    st.caption("🧠 = agent thinking (streamed live) · 🔧 = tool call · ✅ = result — "
+               "watch the agents reason below.")
     log: list[str] = []
     result = None
     with st.status("Hunting… the agents are working", expanded=True) as status:
+        # Streamed reasoning tokens are coalesced into ONE updating block per step (a live
+        # "thinking…" typewriter), then frozen when the step resolves — like Claude's UI.
+        think: dict = {"box": None, "buf": "", "drawn": 0}
+
+        def _freeze_thinking() -> None:
+            if think["box"] is not None:
+                txt = " ".join(think["buf"].split())
+                if txt:
+                    think["box"].markdown(f"> 🧠 *analyst thought:* {txt}")
+                    log.append(f"[analyst thinking] {txt}")
+                think["box"] = None
+                think["buf"] = ""
+                think["drawn"] = 0
+
         def writer(item) -> None:
-            # item may be a rich AgentEvent (thought/tool/result) or a plain string.
+            if isinstance(item, AgentEvent) and item.kind == "reasoning_delta":
+                if think["box"] is None:
+                    think["box"] = status.empty()
+                    think["buf"] = ""
+                    think["drawn"] = 0
+                think["buf"] += item.text
+                # Throttle: DeepSeek emits ~4-char chunks; re-render every ~16 chars so the
+                # typewriter stays smooth without thousands of browser updates per step.
+                if len(think["buf"]) - think["drawn"] >= 16:
+                    txt = " ".join(think["buf"].split())
+                    think["box"].markdown(f"> 🧠 *analyst is thinking…* {txt}▌")
+                    think["drawn"] = len(think["buf"])
+                return
+            _freeze_thinking()  # a real event ends the current thinking block
             log.append(str(item))
             status.markdown(event_markdown(item))
 
         try:
             result = backend.run_hunt(limit=int(limit), tailor=do_tailor,
                                       coach=do_coach, progress=writer)
+            _freeze_thinking()
             status.update(label="Hunt complete ✅", state="complete", expanded=False)
         except Exception as e:
+            _freeze_thinking()
             status.update(label="Hunt failed", state="error")
             st.error(f"Hunt failed: {e}")
 

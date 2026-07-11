@@ -21,6 +21,10 @@ def event_markdown(item) -> str:
     step = f" · step {item.step}" if item.step else ""
     text = item.text
 
+    if item.kind == "reasoning_delta":
+        # Live-streamed reasoning is normally coalesced into one updating block by the page;
+        # this fallback keeps it readable if rendered as a standalone line.
+        return f"> 🧠 {text}"
     if item.kind == "job":
         return f"\n**📋 {text}**"
     if item.kind == "phase":

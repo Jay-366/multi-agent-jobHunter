@@ -35,3 +35,4 @@ scoring:
 
 analyst:
   max_steps: 3                 # ReAct loop bound (lower = faster, fewer tool lookups)
+  thinking: true               # stream the model's chain-of-thought live (slower; set false for speed)
