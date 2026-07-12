@@ -36,7 +36,7 @@ if uploaded is not None:
                 st.warning(reason)
             with st.expander("Preview extracted text"):
                 st.text(resume_text[:2000])
-elif pasted.strip():
+elif pasted.strip():    
     resume_text = pasted
 
 st.caption("Creating a profile makes **1 AI call** (the `pro` model).")

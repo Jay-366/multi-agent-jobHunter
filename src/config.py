@@ -29,6 +29,7 @@ class Settings:
         self.discovery: dict = self._data.get("discovery", {})
         self.scoring: dict = self._data.get("scoring", {})
         self.analyst: dict = self._data.get("analyst", {})
+        self.tools: dict = self._data.get("tools", {})
 
     @property
     def deepseek_api_key(self) -> str:
@@ -38,6 +39,14 @@ class Settings:
                 "DEEPSEEK_API_KEY is not set. Copy .env.example to .env and add your key."
             )
         return key
+
+    @property
+    def tavily_api_key(self) -> str:
+        """Optional web-search key. Empty string when unset (web search then degrades)."""
+        return os.environ.get("TAVILY_API_KEY", "").strip()
+
+    def websearch(self) -> dict:
+        return self.tools.get("websearch", {})
 
     def model_name(self, tier: str = "pro") -> str:
         return self.llm.get("models", {}).get(tier, tier)

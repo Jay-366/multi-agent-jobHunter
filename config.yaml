@@ -36,3 +36,10 @@ scoring:
 analyst:
   max_steps: 3                 # ReAct loop bound (lower = faster, fewer tool lookups)
   thinking: true               # stream the model's chain-of-thought live (slower; set false for speed)
+
+tools:
+  websearch:                   # fetch_company_brief backend (needs TAVILY_API_KEY in .env)
+    provider: tavily
+    max_results: 5             # how many results Tavily returns per query
+    search_depth: basic        # basic | advanced (advanced = deeper, slower, costs more)
+    timeout: 15                # seconds before the search is abandoned (degrades to 'unknown')
