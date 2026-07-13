@@ -7,12 +7,30 @@ installed, but it is optional — CSV is always produced.
 from __future__ import annotations
 
 import csv
+import io
 import json
 from pathlib import Path
 
 from src.services.tracker import Tracker
 
 _FIELDS = ["date", "company", "role", "score", "status", "report"]
+
+
+def csv_bytes(data_dir: str | Path = "data") -> bytes:
+    """Return the tracker as CSV bytes (for in-browser download, no disk write)."""
+    rows = Tracker(data_dir)._load_rows()
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=_FIELDS)
+    writer.writeheader()
+    for r in rows:
+        writer.writerow({k: r.get(k, "") for k in _FIELDS})
+    return buf.getvalue().encode("utf-8-sig")  # BOM so Excel reads UTF-8 correctly
+
+
+def json_bytes(data_dir: str | Path = "data") -> bytes:
+    """Return the tracker as JSON bytes (for in-browser download, no disk write)."""
+    rows = Tracker(data_dir)._load_rows()
+    return json.dumps(rows, indent=2).encode("utf-8")
 
 
 def export_csv(data_dir: str | Path = "data", out_path: str | Path | None = None) -> Path:

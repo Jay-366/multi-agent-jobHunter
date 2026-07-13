@@ -55,10 +55,20 @@ if c1.button("💾 Save statuses", type="primary"):
     st.success("Statuses saved to data/statuses.json.")
 
 st.divider()
+from src.services.export import csv_bytes, export_csv, export_json, json_bytes
+
 e1, e2 = st.columns(2)
-if e1.button("Export CSV"):
-    from src.services.export import export_csv
-    st.success(f"Wrote {export_csv(backend.DATA_DIR)}")
-if e2.button("Export JSON"):
-    from src.services.export import export_json
-    st.success(f"Wrote {export_json(backend.DATA_DIR)}")
+e1.download_button(
+    "⬇️ Download CSV",
+    data=csv_bytes(backend.DATA_DIR),
+    file_name="applications.csv",
+    mime="text/csv",
+    on_click=lambda: export_csv(backend.DATA_DIR),  # keep a copy in data/outputs/
+)
+e2.download_button(
+    "⬇️ Download JSON",
+    data=json_bytes(backend.DATA_DIR),
+    file_name="applications.json",
+    mime="application/json",
+    on_click=lambda: export_json(backend.DATA_DIR),  # keep a copy in data/outputs/
+)
